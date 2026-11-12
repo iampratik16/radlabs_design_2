@@ -21,50 +21,64 @@ const HITS = new Map<string, number[]>();
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 5;
 const MAX_KEYS = 5_000;
+const EVICT_TO = Math.floor(MAX_KEYS * 0.9);
+
+/**
+ * Which header the proxy in front of us is known to OVERWRITE.
+ *
+ *   nginx (proxy_set_header X-Real-IP $remote_addr)  ->  x-real-ip
+ *   Cloudflare                                       ->  cf-connecting-ip
+ *   Vercel                                           ->  x-vercel-forwarded-for
+ *
+ * Unset — the default — we use the rightmost x-forwarded-for hop instead.
+ * This is config, deliberately, not header sniffing: trusting a header
+ * because it happens to be present is the bypass, since any caller can send
+ * one. Preferring such a header over the proxy-appended XFF value is strictly
+ * worse than ignoring it.
+ */
+const TRUSTED_IP_HEADER = process.env.TRUSTED_IP_HEADER?.toLowerCase();
 
 /**
  * The client address, as seen by the proxy in front of us.
  *
- * `x-forwarded-for` is a client-supplied header that each proxy APPENDS to,
- * so the leftmost entry is whatever the caller typed and the rightmost is the
- * one our nearest trusted hop added. Keying the limiter on the leftmost entry
- * made it a no-op: `-H 'X-Forwarded-For: <anything>'` minted a fresh bucket
- * per request, and this route sends mail and fires a webhook.
- *
- * Assumes exactly one trusted proxy (Vercel, nginx, Cloudflare). Behind two,
- * take the second from the right; behind none, neither header can be trusted
- * at all and this needs the platform's own connection address.
+ * `x-forwarded-for` is client-supplied and each proxy APPENDS to it, so the
+ * leftmost entry is whatever the caller typed and the rightmost is the one
+ * our nearest trusted hop added. Assumes exactly one trusted proxy; behind
+ * two, take the second from the right. Behind none, no header can be trusted
+ * and this needs the platform's own connection address.
  */
 function clientKey(request: Request): string {
-  // Set by the proxy itself, single-valued, not a list the caller can prepend to.
-  const real = request.headers.get('x-real-ip')?.trim();
-  if (real) return real;
+  if (TRUSTED_IP_HEADER) {
+    const trusted = request.headers.get(TRUSTED_IP_HEADER)?.split(',')[0]?.trim();
+    if (trusted) return trusted;
+  }
 
   const forwarded = request.headers.get('x-forwarded-for');
   const hops = forwarded?.split(',').map((h) => h.trim()).filter(Boolean) ?? [];
   return hops.at(-1) ?? 'unknown';
 }
 
-/** Drop expired buckets, then oldest-first, until back under the ceiling. */
-function evict(now: number): void {
-  for (const [key, times] of HITS) {
-    if (times.every((t) => now - t >= WINDOW_MS)) HITS.delete(key);
-  }
-  if (HITS.size <= MAX_KEYS) return;
-
-  // Still over: shed the least recently seen. Never clear() — a global wipe
-  // resets every legitimate caller's counter too, which is the bypass.
-  const byAge = [...HITS].sort((a, b) => (a[1].at(-1) ?? 0) - (b[1].at(-1) ?? 0));
-  for (const [key] of byAge.slice(0, HITS.size - MAX_KEYS)) HITS.delete(key);
-}
-
 function rateLimited(ip: string): boolean {
   const now = Date.now();
   const recent = (HITS.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
   recent.push(now);
+
+  // delete + set moves the key to the end. A Map iterates in insertion order,
+  // so this gives LRU for free and eviction becomes a walk from the front —
+  // no sort, which at 5k keys was ~60k comparisons.
+  HITS.delete(ip);
   HITS.set(ip, recent);
 
-  if (HITS.size > MAX_KEYS) evict(now);
+  if (HITS.size > MAX_KEYS) {
+    // Hysteresis. Trimming to exactly MAX_KEYS put the next new key back over
+    // the line, so the eviction ran on every request once the map was full.
+    // Trimming to 90% means it runs once per ~500 new keys instead.
+    for (const key of HITS.keys()) {
+      if (HITS.size <= EVICT_TO) break;
+      HITS.delete(key);
+    }
+  }
+
   return recent.length > MAX_PER_WINDOW;
 }
 

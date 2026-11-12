@@ -3,10 +3,19 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
-  // The work stills are the only raster images on the page; letting Next
-  // re-encode them to AVIF/WebP cuts them to a fraction of the JPEG weight.
+  // Serve the files as they are on disk.
+  //
+  // Vercel's image optimizer answers 402 OPTIMIZED_IMAGE_REQUEST_PAYMENT_REQUIRED
+  // once the Hobby plan's transform quota is spent, and every /_next/image
+  // request fails — the whole site loses its imagery while the source files
+  // sit there serving 200. Leaning on it was a single point of failure with a
+  // billing trigger.
+  //
+  // The cost of turning it off is no automatic resizing or AVIF/WebP, so the
+  // sources have to be right: tools/compress-images.py re-encodes the
+  // generated imagery (29 MB -> 2.5 MB). Re-run it after regenerating any.
   images: {
-    formats: ['image/avif', 'image/webp'],
+    unoptimized: true,
   },
 
   async headers() {

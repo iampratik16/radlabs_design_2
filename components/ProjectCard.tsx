@@ -34,7 +34,9 @@ export default function ProjectCard({
   index: number;
   priority?: boolean;
 }) {
-  const shape = SHAPE[index % SHAPE.length];
+  // Non-null: index % length is always in range, but noUncheckedIndexedAccess
+  // cannot see that and SIZES[shape] will not take `undefined`.
+  const shape = SHAPE[index % SHAPE.length]!;
 
   return (
     <Link className={`tile tile--${shape} reveal`} href={`/work/${project.slug}`}>

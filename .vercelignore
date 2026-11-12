@@ -1,0 +1,9 @@
+# The CLI uploads this directory, so keep the scratch and the tooling out of
+# it. .veo alone is 1.8GB of Veo output and stock footage.
+.veo
+.next
+node_modules
+.playwright-mcp
+tools
+*.jpeg
+*.tsbuildinfo

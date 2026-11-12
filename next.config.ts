@@ -15,7 +15,15 @@ const nextConfig: NextConfig = {
   // sources have to be right: tools/compress-images.py re-encodes the
   // generated imagery (29 MB -> 2.5 MB). Re-run it after regenerating any.
   images: {
-    unoptimized: true,
+    // Not Vercel's optimizer: it answers 402 once the Hobby transform quota
+    // is spent and every image on the site breaks at once. This serves
+    // variants written ahead of time by tools/responsive-images.py, so a
+    // phone gets a phone-sized file and nothing depends on a metered service.
+    loader: 'custom',
+    loaderFile: './lib/image-loader.ts',
+    // Must stay in step with WIDTHS in tools/responsive-images.py.
+    deviceSizes: [400, 800, 1200, 1600],
+    imageSizes: [200, 300],
   },
 
   async headers() {

@@ -198,6 +198,9 @@ a { color: inherit; text-decoration: none; }
   background: rgba(255, 255, 255, .86);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  /* Promote the bar so the blur is not recomputed against freshly painted
+     page content on every scroll frame. */
+  will-change: background-color;
   border-bottom-color: var(--rule);
   padding-block: .95rem;
 }
@@ -1726,4 +1729,47 @@ a { color: inherit; text-decoration: none; }
   font-family: var(--display);
   font-size: clamp(1.5rem, 3vw, 2.4rem);
   line-height: 1.22;
+}
+
+/* =========================================================================
+   SMALL SCREENS: paint cost
+   ========================================================================= */
+@media (max-width: 1024px) {
+  /* A blurred fixed bar forces the region beneath it to be re-rasterised
+     every scroll frame. On a phone that is the single biggest source of
+     scroll jank here, and an opaque bar is indistinguishable in use. */
+  .nav.is-stuck {
+    background: var(--ground);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Let the browser skip layout and paint for sections that are nowhere near
+   the viewport. contain-intrinsic-size keeps the scrollbar honest while they
+   are skipped, so this costs nothing in jumpiness. */
+@supports (content-visibility: auto) {
+  .caseband,
+  .caseapproach,
+  .casemobile,
+  .casedeck,
+  .worklist,
+  .services,
+  .studio,
+  .srow {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 600px;
+  }
+}
+
+/* Decoding a 7000px-tall capture is the other mobile cost. These never animate
+   and are never on screen at full height, so hand the work to the compositor
+   and let it rasterise only what is visible. */
+.device__screen img,
+.deck__screen img {
+  content-visibility: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck__screen img { transition: none; }
 }

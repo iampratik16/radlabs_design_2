@@ -26,7 +26,10 @@ export default function Hero() {
     }
 
     // Browsers dropped media queries on <source>, so the choice is made here.
-    video.src = window.matchMedia('(max-width: 720px)').matches ? MOBILE_SRC : DESKTOP_SRC;
+    // The threshold is 1024, not 720: between the two a tablet was pulling the
+    // 18MB desktop cut over cellular. The mobile cut is 1024x576 / 3.7MB, which
+    // is the right file for anything that is not a desktop display.
+    video.src = window.matchMedia('(max-width: 1024px)').matches ? MOBILE_SRC : DESKTOP_SRC;
     video.load();
     void video.play().catch(() => {
       /* autoplay refused — the poster stands in */

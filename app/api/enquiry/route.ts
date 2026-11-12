@@ -20,6 +20,43 @@ export const runtime = 'nodejs';
 const HITS = new Map<string, number[]>();
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 5;
+const MAX_KEYS = 5_000;
+
+/**
+ * The client address, as seen by the proxy in front of us.
+ *
+ * `x-forwarded-for` is a client-supplied header that each proxy APPENDS to,
+ * so the leftmost entry is whatever the caller typed and the rightmost is the
+ * one our nearest trusted hop added. Keying the limiter on the leftmost entry
+ * made it a no-op: `-H 'X-Forwarded-For: <anything>'` minted a fresh bucket
+ * per request, and this route sends mail and fires a webhook.
+ *
+ * Assumes exactly one trusted proxy (Vercel, nginx, Cloudflare). Behind two,
+ * take the second from the right; behind none, neither header can be trusted
+ * at all and this needs the platform's own connection address.
+ */
+function clientKey(request: Request): string {
+  // Set by the proxy itself, single-valued, not a list the caller can prepend to.
+  const real = request.headers.get('x-real-ip')?.trim();
+  if (real) return real;
+
+  const forwarded = request.headers.get('x-forwarded-for');
+  const hops = forwarded?.split(',').map((h) => h.trim()).filter(Boolean) ?? [];
+  return hops.at(-1) ?? 'unknown';
+}
+
+/** Drop expired buckets, then oldest-first, until back under the ceiling. */
+function evict(now: number): void {
+  for (const [key, times] of HITS) {
+    if (times.every((t) => now - t >= WINDOW_MS)) HITS.delete(key);
+  }
+  if (HITS.size <= MAX_KEYS) return;
+
+  // Still over: shed the least recently seen. Never clear() — a global wipe
+  // resets every legitimate caller's counter too, which is the bypass.
+  const byAge = [...HITS].sort((a, b) => (a[1].at(-1) ?? 0) - (b[1].at(-1) ?? 0));
+  for (const [key] of byAge.slice(0, HITS.size - MAX_KEYS)) HITS.delete(key);
+}
 
 function rateLimited(ip: string): boolean {
   const now = Date.now();
@@ -27,7 +64,7 @@ function rateLimited(ip: string): boolean {
   recent.push(now);
   HITS.set(ip, recent);
 
-  if (HITS.size > 5_000) HITS.clear(); // crude ceiling on memory growth
+  if (HITS.size > MAX_KEYS) evict(now);
   return recent.length > MAX_PER_WINDOW;
 }
 
@@ -75,10 +112,7 @@ async function deliver(enquiry: Enquiry): Promise<boolean> {
 }
 
 export async function POST(request: Request) {
-  const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    'unknown';
+  const ip = clientKey(request);
 
   if (rateLimited(ip)) {
     return NextResponse.json(

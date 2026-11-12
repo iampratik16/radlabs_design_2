@@ -11,6 +11,20 @@ import { type Project } from '@/lib/projects';
  */
 const SHAPE = ['full', 'four', 'eight', 'eight', 'four', 'full'] as const;
 
+/**
+ * What fraction of the viewport each shape actually occupies, so the browser
+ * picks the right variant. One `sizes` for all three was wrong: a full-width
+ * tile declared 60vw and got a 500w image for a 767px slot on a tablet —
+ * visibly soft. Below 760px the mosaic is one column, so everything is 100vw.
+ *
+ * The grid is 12 columns inside `.wrap`: 12/12, 8/12, 4/12.
+ */
+const SIZES = {
+  full: '(max-width: 760px) 100vw, 92vw',
+  eight: '(max-width: 760px) 100vw, 61vw',
+  four: '(max-width: 760px) 100vw, 31vw',
+} as const;
+
 export default function ProjectCard({
   project,
   index,
@@ -32,7 +46,7 @@ export default function ProjectCard({
         alt={`${project.sector} — ${project.name}`}
         fill
         priority={priority}
-        sizes="(max-width: 760px) 100vw, (max-width: 1100px) 60vw, 70vw"
+        sizes={SIZES[shape]}
       />
       <span className="tile__scrim" aria-hidden="true" />
       <span className="tile__label">

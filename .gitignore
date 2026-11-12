@@ -11,3 +11,5 @@ next-env.d.ts
 
 # Browser-automation artefacts (screenshots, console logs)
 .playwright-mcp
+.vercel
+.env*
